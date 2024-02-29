@@ -33,6 +33,7 @@ contract PufferVault is
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.UintSet;
     using SafeERC20 for IStETH;
+    using SafeERC20 for IERC20;
 
     struct EigenPoint {
         uint256 assets;
@@ -59,20 +60,32 @@ contract PufferVault is
 
     mapping(address => EigenPoint) public eigenPoint;
 
-    event Deposit(address caller, address receiver, uint256 assets, uint256 shares);
+    address public immutable rewardToken;
+    uint256 public duration;
+    uint256 public rewardPerTokenStored;
+    uint256 public rewardRate;
+    uint256 public finishAt;
+    uint256 public updatedAt;
+    mapping(address => uint256) public rewards;
+    mapping(address => uint256) public userRewardPerTokenPaid;
+    mapping(address => uint256) public userUpdatedAt;
 
-    event Withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares);
+    event AddReward(address indexed token, uint256 amount, uint256 newShareIndex);
+    event Claim(address indexed token, address indexed account, uint256 amount);
+    event Deposit(address caller, address receiver, uint256 assets, uint256 shares);
 
     constructor(
         IStETH stETH,
         ILidoWithdrawalQueue lidoWithdrawalQueue,
         IStrategy stETHStrategy,
-        IEigenLayer eigenStrategyManager
+        IEigenLayer eigenStrategyManager,
+        address _rewardToken
     ) payable {
         _ST_ETH = stETH;
         _LIDO_WITHDRAWAL_QUEUE = lidoWithdrawalQueue;
         _EIGEN_STETH_STRATEGY = stETHStrategy;
         _EIGEN_STRATEGY_MANAGER = eigenStrategyManager;
+        rewardToken = _rewardToken;
         _disableInitializers();
     }
 
@@ -83,6 +96,8 @@ contract PufferVault is
 
         __ERC20Permit_init("edETH");
         __ERC20_init("edETH", "edETH");
+
+        duration = 30 days;
     }
 
     /**
@@ -281,4 +296,86 @@ contract PufferVault is
     function pricePerShare() public view virtual returns (uint256) {
         return totalAssets() * 1e18 / totalSupply();
     }
+
+    // ***************************************************************************************
+
+    modifier updateReward(address _account) {
+        rewardPerTokenStored = rewardPerToken();
+        updatedAt = lastTimeRewardApplicable();
+
+        if (_account != address(0)) {
+            rewards[_account] = earned(_account);
+            userRewardPerTokenPaid[_account] = rewardPerTokenStored;
+            userUpdatedAt[_account] = block.timestamp;
+        }
+
+        _;
+    }
+
+    function _updateReward(address _account) updateReward(_account) internal { }
+
+    function notifyRewardAmount(uint256 _amount)
+        external onlyOwner
+        updateReward(address(0))
+    {
+        require(_amount > 0, "amount = 0");
+        if (block.timestamp >= finishAt) {
+            rewardRate = _amount / duration;
+        } else {
+            uint256 remainingRewards = (finishAt - block.timestamp) * rewardRate;
+            rewardRate = (_amount + remainingRewards) / duration;
+        }
+        require(rewardRate > 0, 'reward rate = 0');
+
+        finishAt = block.timestamp + duration;
+        updatedAt = block.timestamp;
+
+        emit AddReward(rewardToken, _amount, rewardRate);
+    }
+
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 /* amount */
+    ) internal override {
+        if (from != address(0)) {
+            _updateReward(from);
+        }
+        if (to != address(0)) {
+            _updateReward(to);
+        }
+    }
+
+    function claim() external updateReward(msg.sender) returns (uint256 amount) {
+        amount = rewards[msg.sender];
+        if (amount > 0) {
+            rewards[msg.sender] = 0;
+            IERC20(rewardToken).safeTransfer(msg.sender, amount);
+            emit Claim(rewardToken, msg.sender, amount);
+        }
+    }
+
+    function earned(address _account) public view returns (uint256) {
+        return ((balanceOf(_account) * (rewardPerToken() - userRewardPerTokenPaid[_account])) / 1e36) + rewards[_account];
+    }
+
+    function rewardPerToken() public view returns (uint256) {
+        if (totalSupply() == 0) {
+            return rewardPerTokenStored;
+        }
+        return
+            rewardPerTokenStored +
+            (rewardRate * (lastTimeRewardApplicable() - updatedAt) * 1e36) /
+            totalSupply();
+    }
+
+    function lastTimeRewardApplicable() public view returns (uint256) {
+        return _min(finishAt, block.timestamp);
+    }
+
+    function _min(uint256 x, uint256 y) private pure returns (uint256) {
+        return x <= y ? x : y;
+    }
+
+    // ***************************************************************************************
 }

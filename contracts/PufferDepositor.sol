@@ -26,6 +26,8 @@ contract PufferDepositor is IPufferDepositor, PufferDepositorStorage, OwnableUpg
     using SafeERC20 for IWstETH;
     using SafeERC20 for IStETH;
 
+    address public constant ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
     IStETH internal immutable _ST_ETH;
     IWstETH internal immutable _WST_ETH;
 
@@ -33,6 +35,8 @@ contract PufferDepositor is IPufferDepositor, PufferDepositorStorage, OwnableUpg
      * @dev The Puffer Vault contract address
      */
     PufferVault public immutable PUFFER_VAULT;
+
+    event Deposit(address indexed user, address indexed asset, uint256 amount, address referer);
 
     constructor(PufferVault pufferVault, IStETH stETH, IWstETH wstETH) payable {
         PUFFER_VAULT = pufferVault;
@@ -52,7 +56,7 @@ contract PufferDepositor is IPufferDepositor, PufferDepositorStorage, OwnableUpg
     /**
      * @inheritdoc IPufferDepositor
      */
-    function depositWstETHPermit(IPufferDepositor.Permit calldata permitData)
+    function depositWstETHPermit(IPufferDepositor.Permit calldata permitData, address referer)
         external
         nonReentrant
         returns (uint256 pufETHAmount)
@@ -71,10 +75,11 @@ contract PufferDepositor is IPufferDepositor, PufferDepositorStorage, OwnableUpg
         uint256 stETHAmount = _ST_ETH.balanceOf(address(this));
         _WST_ETH.unwrap(permitData.amount);
         stETHAmount = _ST_ETH.balanceOf(address(this)) - stETHAmount;
+        emit Deposit(msg.sender, address(_WST_ETH), stETHAmount, referer);
         return PUFFER_VAULT.deposit(stETHAmount, msg.sender);
     }
 
-    function depositWstETH(uint256 amount)
+    function depositWstETH(uint256 amount, address referer)
         external
         nonReentrant
         returns (uint256 pufETHAmount)
@@ -83,13 +88,14 @@ contract PufferDepositor is IPufferDepositor, PufferDepositorStorage, OwnableUpg
         uint256 stETHAmount = _ST_ETH.balanceOf(address(this));
         _WST_ETH.unwrap(amount);
         stETHAmount = _ST_ETH.balanceOf(address(this)) - stETHAmount;
+        emit Deposit(msg.sender, address(_WST_ETH), stETHAmount, referer);
         return PUFFER_VAULT.deposit(stETHAmount, msg.sender);
     }
 
     /**
      * @inheritdoc IPufferDepositor
      */
-    function depositStETHPermit(IPufferDepositor.Permit calldata permitData)
+    function depositStETHPermit(IPufferDepositor.Permit calldata permitData, address referer)
         external
         nonReentrant
         returns (uint256 pufETHAmount)
@@ -105,22 +111,25 @@ contract PufferDepositor is IPufferDepositor, PufferDepositorStorage, OwnableUpg
         }) { } catch { }
 
         _ST_ETH.safeTransferFrom(msg.sender, address(this), permitData.amount);
+        emit Deposit(msg.sender, address(_ST_ETH), permitData.amount, referer);
         return PUFFER_VAULT.deposit(permitData.amount, msg.sender);
     }
 
-    function depositStETH(uint256 amount)
+    function depositStETH(uint256 amount, address referer)
         external
         nonReentrant
         returns (uint256 pufETHAmount)
     {
         _ST_ETH.safeTransferFrom(msg.sender, address(this), amount);
+        emit Deposit(msg.sender, address(_ST_ETH), amount, referer);
         return PUFFER_VAULT.deposit(amount, msg.sender);
     }
 
-    function depositETH() external payable nonReentrant returns (uint256 pufETHAmount){
+    function depositETH(address referer) external payable nonReentrant returns (uint256 pufETHAmount){
         uint256 stETHAmount = _ST_ETH.balanceOf(address(this));
         _ST_ETH.submit{value: msg.value}(address(this));
         stETHAmount = _ST_ETH.balanceOf(address(this)) - stETHAmount;
+        emit Deposit(msg.sender, ETH_ADDRESS, stETHAmount, referer);
         return PUFFER_VAULT.deposit(stETHAmount, msg.sender);
     }
 

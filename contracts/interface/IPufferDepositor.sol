@@ -45,12 +45,12 @@ interface IPufferDepositor {
      * @param permitData The permit data containing the approval information
      * @return pufETHAmount The amount of pufETH received from the deposit
      */
-    function depositWstETHPermit(IPufferDepositor.Permit calldata permitData) external returns (uint256 pufETHAmount);
+    function depositWstETHPermit(IPufferDepositor.Permit calldata permitData, address referer) external returns (uint256 pufETHAmount);
 
     /**
      * @notice Deposits stETH into the Puffer Vault using Permit
      * @param permitData The permit data containing the approval information
      * @return pufETHAmount The amount of pufETH received from the deposit
      */
-    function depositStETHPermit(IPufferDepositor.Permit calldata permitData) external returns (uint256 pufETHAmount);
+    function depositStETHPermit(IPufferDepositor.Permit calldata permitData, address referer) external returns (uint256 pufETHAmount);
 }
